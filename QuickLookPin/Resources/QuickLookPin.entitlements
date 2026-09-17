@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  公证要求开启 Hardened Runtime，而 Hardened Runtime 默认**阻断 Apple Event 的发送**。
+	  本 App 全靠 Apple Event 向 Finder 询问当前选中项（读取选中项、跟随模式都依赖它），
+	  所以这条 entitlement 是必需的 —— 少了它，签名和公证都会通过，
+	  但一运行就读不到 Finder 选中项，属于「看起来没问题、实际功能全废」的坑。
+
+	  配套的 NSAppleEventsUsageDescription 已经在 Info.plist 里。
+	  两者缺一不可：entitlement 管「允许发」，usage description 管「弹授权框的说明文案」。
+	-->
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+</dict>
+</plist>
