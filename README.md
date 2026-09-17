@@ -48,17 +48,66 @@ Markdown、源码高亮、各种格式插件，系统能预览什么，这里就
 - macOS 13 及以上
 - Xcode Command Line Tools（只用 `swiftc`，不依赖 SwiftPM / Xcode 工程 / 任何第三方库）
 
+## 安装
+
+### 方式一：下载现成的 App
+
+到 [Releases](https://github.com/kavinluo/quickLookPin/releases) 下载
+`QuickLookPin-<版本>-universal.zip`，解压后把 `QuickLookPin.app` 拖进「应用程序」。
+
+通用二进制，Apple Silicon 和 Intel Mac 都能跑。
+
+> ### ⚠️ 首次打开会被 Gatekeeper 拦住
+>
+> **这个 App 没有经过 Apple 公证**（公证需要付费的 Apple Developer 账号）。
+> 所以从网上下载后第一次打开，macOS 会提示「无法验证此 App 是否包含恶意软件」
+> 并拒绝启动。这是未公证 App 的统一待遇，不代表它有问题 ——
+> 源码全在这个仓库里，你可以自己审、自己编。
+>
+> **放行办法（二选一）**
+>
+> 1. 双击一次（会被拒绝）→ 打开「系统设置 → 隐私与安全性」→
+>    下拉找到「已阻止 QuickLookPin 的使用」→ 点「**仍要打开**」→ 再确认一次。
+>
+> 2. 或者直接用命令行去掉隔离标记：
+>
+>    ```bash
+>    xattr -dr com.apple.quarantine /Applications/QuickLookPin.app
+>    ```
+>
+> 注意：在 macOS 15 上，过去那招「右键 → 打开」**已经不管用了**，
+> 必须走上面两条路之一。
+>
+> 介意的话就用下面的方式二，自己编译一份，完全不会遇到这个问题。
+
+### 方式二：自己编译（推荐给开发者）
+
+```bash
+git clone https://github.com/kavinluo/quickLookPin.git
+cd quickLookPin/QuickLookPin
+./build.sh run
+```
+
+自己编译出来的 App 不带隔离标记，直接就能用。
+
 ## 构建
 
 ```bash
 cd QuickLookPin
-./build.sh          # 构建
-./build.sh run      # 构建并启动
+./build.sh              # 本机架构构建（开发用，最快）
+./build.sh run          # 构建并启动
+./build.sh universal    # 通用二进制 arm64 + x86_64（发布用）
+
+./release.sh v0.1.0     # 构建通用二进制并打包成 zip，打印 SHA256
 ```
 
 产物：`QuickLookPin/build/QuickLookPin.app`
 
-`build.sh` 直接用 `swiftc` 编译再手工组装 bundle，最后做 ad-hoc 签名。
+`build.sh` 直接用 `swiftc` 编译再手工组装 bundle，最后做 **ad-hoc 签名**。
+
+> ad-hoc 签名 ≠ Developer ID 签名 ≠ 公证，三者是递进的。ad-hoc 只能保证
+> 本机 TCC 授权记账稳定；要让别人下载后无警告打开，必须做**公证**。
+> `release.sh` 的注释里写了补公证需要加哪几行。
 
 ## 需要授予的权限
 
