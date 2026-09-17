@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>QuickLookPin</string>
+	<key>CFBundleDisplayName</key>
+	<string>QuickLookPin</string>
+	<key>CFBundleExecutable</key>
+	<string>QuickLookPin</string>
+	<key>CFBundleIdentifier</key>
+	<string>local.quicklookpin.QuickLookPin</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+
+	<!-- 菜单栏常驻，不要 Dock 图标 -->
+	<key>LSUIElement</key>
+	<true/>
+
+	<!-- 没有这一条，App 一发 Apple Event 就会被 TCC 直接杀掉 -->
+	<key>NSAppleEventsUsageDescription</key>
+	<string>QuickLookPin 需要向 Finder 询问当前选中的文件，才能为它们打开固定的预览窗口。</string>
+</dict>
+</plist>

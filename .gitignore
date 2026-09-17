@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+
+# 构建产物
+QuickLookPin/build/
+*.o
+*.dSYM/
+
+# 尖刀验证编译出来的裸二进制（源码 spike.swift / spike2.swift 要保留）
+/spike
+/spike2
+
+# 运行与调试输出
+*.out
+*.log
