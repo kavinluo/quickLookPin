@@ -14,6 +14,17 @@ final class PinnedWindow: NSWindow {
         }
         return super.performKeyEquivalent(with: event)
     }
+
+    /// 窗口常以「不激活」方式弹出（不抢 Finder 焦点）。这时第一下点击只会激活 App，
+    /// 拖选文字不生效，看起来就像「选不中」。这里在按下时先把 App 和窗口激活，
+    /// 让同一下拖动直接开始选取。
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown, !NSApp.isActive || !isKeyWindow {
+            NSApp.activate(ignoringOtherApps: true)
+            makeKey()
+        }
+        super.sendEvent(event)
+    }
 }
 
 /// 一个预览窗口。一窗一实例，和其他窗口不共享任何状态。
@@ -72,6 +83,7 @@ final class PinnedPreviewWindowController: NSWindowController, NSWindowDelegate 
 
         super.init(window: window)
         window.delegate = self
+        SelectionEnabler.applyRepeatedly(to: view)
         installTitlebarButtons()
         rebuildWatcher()
         updateChrome()
@@ -86,6 +98,8 @@ final class PinnedPreviewWindowController: NSWindowController, NSWindowDelegate 
         guard isFollowing, newURL != url else { return }
         url = newURL
         preview.previewItem = newURL as QLPreviewItem
+        // 换了文件就是换了一套视图，选取开关要重新打一遍
+        SelectionEnabler.applyRepeatedly(to: preview)
         rebuildWatcher()
         updateChrome()
     }
@@ -104,7 +118,9 @@ final class PinnedPreviewWindowController: NSWindowController, NSWindowDelegate 
         watcher = nil
         guard Settings.watchFileChanges else { return }
         watcher = FileWatcher(url: url) { [weak self] in
-            self?.preview.refreshPreviewItem()
+            guard let self else { return }
+            self.preview.refreshPreviewItem()
+            SelectionEnabler.applyRepeatedly(to: self.preview)
         }
     }
 

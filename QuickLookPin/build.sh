@@ -22,6 +22,7 @@ build_one() {
     Sources/*.swift \
     -framework Cocoa \
     -framework Quartz \
+    -framework WebKit \
     -framework Carbon
 }
 
@@ -46,6 +47,7 @@ fi
 
 echo "==> 组装 bundle"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 # ad-hoc 签名。TCC（自动化权限）按签名标识记账，所以这一步不能省，
 # 否则每次重建都可能被当成另一个 App 重新弹授权。
