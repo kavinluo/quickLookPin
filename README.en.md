@@ -1,0 +1,473 @@
+# QuickLookPin
+
+**English** | [中文](README.md)
+
+Pin macOS Quick Look previews as independent, always-on-top windows — read at
+length while you keep using Finder.
+
+---
+
+## The problem
+
+The macOS spacebar preview is a **system-wide singleton panel**, tightly bound to
+Finder's current selection:
+
+- Switch to another Finder window and it disappears
+- Select a different file and its content is replaced
+- Want to look at two files side by side? You can't
+
+QuickLookPin lets you **pin** a preview: one window per file, each independent,
+floating on top, unaffected by whatever you do in Finder.
+
+## How it works
+
+The core is QuickLookUI's **`QLPreviewView`**. It's an ordinary `NSView` that can
+be embedded in your own `NSWindow`, and it runs **exactly the same Quick Look
+pipeline** as the system spacebar preview.
+
+That brings one key benefit: **the third-party Quick Look extensions you already
+have installed keep working.** Markdown, syntax-highlighted source, format plug-ins
+of every kind — whatever the system can preview, this can too. The project has no
+format whitelist.
+
+The fundamental difference from the system `QLPreviewPanel`: that one is a
+**singleton**; this is **one instance per window**.
+
+## Features
+
+- **Lives in the menu bar** (`LSUIElement`, no Dock icon)
+- **Global hotkey** to summon it, recordable in Preferences
+- **Follow mode**: a newly opened window tracks the Finder selection — press the
+  arrow keys in Finder to switch its content
+- **Lock**: click the pin to lock the window to the current file; after that,
+  Finder selection changes don't affect it
+- **Toggleable always-on-top**, draggable and resizable windows, `⌘W` to close
+- **Selectable, copyable text** in previews (`⌘C` / `⌘A`) — see
+  [Making text selectable](#making-text-selectable) for what is and isn't possible
+- **Follows you across all Spaces** (`collectionBehavior`)
+- **Cascaded window offsets**, so multiple windows never stack exactly
+- **Auto-refresh** when the file is modified externally
+- **Doesn't hijack the spacebar** — the system's own spacebar preview is untouched
+- **No Accessibility permission required**
+
+## Requirements
+
+- macOS 13 or later
+- Xcode Command Line Tools (only `swiftc` is used — no SwiftPM, no Xcode project,
+  no third-party libraries)
+
+## Installation
+
+### Option 1: Download the app
+
+Grab `QuickLookPin-<version>-universal.zip` from
+[Releases](https://github.com/kavinluo/quickLookPin/releases), unzip it, and drag
+`QuickLookPin.app` into Applications.
+
+It's a universal binary that runs on both Apple Silicon and Intel Macs.
+
+**It is notarized by Apple with the ticket stapled, so it opens with a double-click
+and no security warnings.**
+
+Signed by: `Developer ID Application: Kunming Shengjin Technology Co., Ltd. (6Q5WXHK929)`
+
+To verify it yourself:
+
+```bash
+# Is the ticket stapled into the app? (works offline)
+xcrun stapler validate /Applications/QuickLookPin.app
+
+# What does Gatekeeper think? Should show source=Notarized Developer ID
+spctl -a -vvv -t install /Applications/QuickLookPin.app
+```
+
+### Option 2: Build from source (recommended for developers)
+
+```bash
+git clone https://github.com/kavinluo/quickLookPin.git
+cd quickLookPin/QuickLookPin
+./build.sh run
+```
+
+An app you build yourself carries no quarantine flag and runs right away.
+
+## Building
+
+```bash
+cd QuickLookPin
+./build.sh              # native-architecture build (for development, fastest)
+./build.sh run          # build and launch
+./build.sh universal    # universal binary, arm64 + x86_64 (for release)
+
+./release.sh v0.1.2     # build a universal binary, zip it, print the SHA256
+```
+
+Output: `QuickLookPin/build/QuickLookPin.app`
+
+`build.sh` compiles directly with `swiftc`, assembles the bundle by hand, and
+finishes with an **ad-hoc signature** — enough for local development.
+
+Releases go through `release.sh`, which additionally performs **Developer ID
+signing + Hardened Runtime + Apple notarization + stapling**:
+
+```bash
+SIGN=1 NOTARY=AC_PASSWORD ./release.sh v0.1.2
+```
+
+> **These three steps build on each other — don't confuse them:**
+> - **Ad-hoc signature** — only keeps local TCC permission bookkeeping stable;
+>   anyone who downloads the app will be blocked by Gatekeeper
+> - **Developer ID signature** — gives the app a traceable signer, but
+>   **downloads are still blocked**
+> - **Notarization** — this is the step that actually removes the warning
+>
+> One more easy-to-miss trap: notarization requires the Hardened Runtime, and the
+> Hardened Runtime **blocks Apple Events by default**. This app reads the Finder
+> selection via Apple Events, so it must carry the
+> `com.apple.security.automation.apple-events` entitlement from
+> `Resources/QuickLookPin.entitlements`. Without it, signing and notarization both
+> succeed, but at runtime the app silently fails to read the Finder selection.
+
+### App icon
+
+The icon is generated by a script rather than drawn by hand: a macOS-style
+rounded-rectangle plate, a preview card, and a 📌 pinned to it.
+
+```bash
+cd QuickLookPin
+swift Resources/make-icon.swift   # regenerates Resources/AppIcon.icns
+```
+
+`AppIcon.icns` is committed to the repo; you only need to rerun this when changing
+the design.
+
+## Permissions
+
+| Permission | When it's requested | Why |
+|------|---------|------|
+| **Automation → Finder** | The first time you press the hotkey | Reads Finder's current selection via AppleScript |
+
+If you deny it, you can re-enable it later under
+**System Settings → Privacy & Security → Automation**.
+
+**No** Accessibility permission is needed: the global hotkey uses Carbon's
+`RegisterEventHotKey`, deliberately avoiding the global `NSEvent` monitor, which
+would require Accessibility access.
+
+**No** Screen Recording permission is needed either.
+
+## Usage
+
+1. Select a file in Finder and press the hotkey → a **follow window** opens
+2. Use the arrow keys in Finder to change the selection; the window's content
+   follows
+3. Want to keep a particular file? Click the **pin** to lock it, then press the
+   hotkey again to open the next one
+
+Only one follow window exists at a time; if an unlocked follow window is already
+open, the hotkey simply brings it to the front.
+
+The **two buttons** on the right of the title bar **each do one thing**:
+
+| Button | Controls |
+|---|---|
+| 📌 Pin | **Follow / Lock** (content). While following, the title shows `◎ 跟随 ·`; once locked, it shows `📌` |
+| ⬆️ Square arrow | **Always on top / Normal** (window level) |
+
+To copy text, drag to select it in the preview (or `⌘A`), then `⌘C`.
+
+> ⚠️ **Avoid the spacebar when choosing a hotkey** — see
+> [Finder swallows the spacebar](#finder-swallows-the-spacebar-modifiers-included)
+> below.
+
+---
+
+## Engineering notes
+
+Pitfalls hit during development, each backed by measurements, written down here
+for reference.
+
+### `QLPreviewView` must use `.normal`, not `.compact`
+
+`.compact` only shows a "blank page with a folded corner + thumbnail" document
+icon — **it never gets the preview extension's full rendering**. Only `.normal`
+runs the full pipeline.
+
+### The thumbnail pipeline and the preview pipeline are different things
+
+Using `qlmanage -t` to generate a thumbnail and judge whether "the preview works"
+is **wrong**. Many extensions (QLMarkdown, for example) register only the
+`com.apple.quicklook.preview` extension point and no thumbnail extension. The
+thumbnail then falls back to the system's plain-text renderer, while the actual
+preview works perfectly.
+
+### `RegisterEventHotKey` returns `noErr` even for combinations already taken
+
+This is the nastiest one. If the target combination is already claimed by a system
+shortcut, registration **still succeeds**, but the system intercepts the key press
+first and the app never receives it. The symptom: "the log says registration
+succeeded, pressing the keys does nothing, and not even the permission prompt
+appears." **The `OSStatus` alone cannot detect this conflict.**
+
+`SystemHotKeyConflict.swift` handles it by separately checking
+`com.apple.symbolichotkeys` after registration and raising an explicit warning in
+the menu bar and in Preferences when it finds a conflict.
+
+### Finder swallows the spacebar, modifiers included
+
+Even when there's no system-level conflict, **pressing `⌃Space` with Finder in the
+foreground still just opens the built-in Quick Look.** Finder's own spacebar
+handling **ignores the Control modifier**, treats it as a bare space, and consumes
+the event before the Carbon hotkey ever sees it.
+
+So any "Space + modifier" combination is unreliable if you expect it to fire while
+Finder is in front.
+
+### `FileWatcher`'s self-triggering `.attrib` loop
+
+When watching for file changes, if the event mask includes `.attrib` and every
+event triggers a refresh unconditionally, you get an infinite loop: while previewing
+a file, the system and the extension themselves touch its extended attributes →
+`.attrib` fires → `refreshPreviewItem()` → attributes touched again → fires again.
+The symptom is **a preview window that flickers continuously**.
+
+Measured (14 seconds, nobody touching the file):
+
+| | File events | Refreshes |
+|---|---|---|
+| Before the fix | 36 | 35 |
+| After the fix | 0 | 0 |
+
+Two lines of defense: the mask **excludes `.attrib`**, and on each event the file
+is `stat`-ed once and `(mtime, size, inode)` compared with the previous value —
+**if nothing changed, the event is dropped.** The second one is the one that
+matters.
+
+### `NSScreen.main` is not "the main display"
+
+It means "**the screen that has keyboard focus**." On a multi-display setup, using
+it to position new windows throws them onto a screen the user isn't looking at.
+This project uses **the screen the mouse is on** instead.
+
+### Follow mode can only poll
+
+Finder offers no public notification for selection changes; AppleScript can only
+ask. Going event-driven would require `AXObserver`, which needs Accessibility
+permission.
+
+Mitigations: polling only runs **while a follow window exists**, and Apple Events
+are only actually sent **while Finder is in the foreground**.
+
+> Side effect: **clicking a preview window pauses following** — QuickLookPin
+> becomes the foreground app, so polling idles until focus returns to Finder. If
+> you want to scroll and read, the right move is to **lock with the pin first**.
+
+### Making text selectable
+
+System Quick Look blocks text selection by default, and each of its three
+rendering paths blocks it differently (all measured by walking the view hierarchy
+at runtime):
+
+| Content | Rendering view | Why it can't be selected | Handling |
+|---|---|---|---|
+| Plain text | `QLTextView` (an `NSTextView` subclass) | `isSelectable = false` | Set it to `true` |
+| Markdown / HTML, etc. | `QLWeb2View` (a `WKWebView` subclass) | The page is styled `-webkit-user-select: none` | See below |
+| PDF, etc. | `NSRemoteView` | Rendered in another process | **Out of reach** |
+
+The Markdown path has a trap: that `user-select: none` comes from a WebKit
+**user-level stylesheet**, and user-level `!important` beats author-level
+`!important`. So injecting `*{-webkit-user-select:text !important}` into the page
+**does nothing** — the computed value stays `none` (measured). Flipping
+`WKPreferences.isTextInteractionEnabled` doesn't help either; it's already `true`.
+
+What works is `-webkit-user-modify: read-write`: the content is treated as an
+editable region, and editable regions are allowed to be selected. The side effect
+is that the text really could be edited, so `beforeinput` / `paste` / `drop` /
+`dragstart` are all blocked, leaving only selection and copying. The caret is made
+transparent as well. See `Sources/SelectionEnabler.swift`.
+
+Previews load asynchronously and their view tree appears late, so the fix is
+applied at several points in time (0.2 s → 3.5 s) and re-applied whenever the file
+is switched or refreshed. The injection is idempotent.
+
+Two more pieces of plumbing were needed for copying to work:
+
+- **An `LSUIElement` app has no main menu, and `⌘C` / `⌘A` are dispatched through
+  the main menu.** Without one, keyboard shortcuts go nowhere even when text is
+  selected. The app installs a main menu that never appears on screen.
+- **Preview windows usually open without activating** (so they don't steal
+  Finder's focus). The first click would then be spent activating the app, and the
+  drag-selection wouldn't register. The window now activates itself on
+  `mouseDown` before passing the event on.
+
+---
+
+## Performance
+
+Method: **cumulative CPU time** (`ps -o time`) and the process's self-reported
+`phys_footprint`. Don't use `top -l N` instantaneous sampling for this kind of
+measurement — it's extremely unreliable under load. It once reported an idle
+process doing nothing at 3.49%, with samples in the same run jumping from 0.2% to
+16.3%.
+
+### Memory
+
+| State | Footprint |
+|---|---|
+| Idle (no windows) | **12.3 MB** |
+| 4 preview windows open | ~27.8 MB |
+| After closing them all | **25.2 MB** (stable, no further growth) |
+
+The RSS reported by `ps` is much larger (about 89 MB after the first preview)
+because it counts **shared-mapped framework pages** like WebKit and QuickLookUI.
+Use `phys_footprint` to judge actual usage.
+
+### CPU
+
+| State | Usage |
+|---|---|
+| Idle | **0.000%** |
+| Follow polling (0.4 s interval) | **0.800%** |
+
+0.8% is the **ceiling**: switch to another app and polling idles, dropping the cost
+to zero.
+
+### A memory leak that was fixed
+
+Memory grew linearly when preview windows were repeatedly opened and closed. A/B
+comparison (10 rounds × 4 windows per round):
+
+| | After closing, round 1 | After closing, last round | Average slope | Second-half / first-half slope |
+|---|---|---|---|---|
+| Before the fix | 24.00 MB | 29.20 MB | +0.578 MB/round | 0.86 (barely slowing = linear leak) |
+| After the fix | 24.00 MB | 25.20 MB | +0.133 MB/round | **0.16 (flattening out)** |
+
+**Root cause**: the windows set `shouldCloseWithWindow = false`, so `QLPreviewView`
+never cleans up after itself — and the code **never called its `close()`**. The fix
+is an explicit `preview.close()` in `windowWillClose`.
+
+A **disproven hypothesis**, for the record: the first suspect was a leak in the
+`QuickLookUIService.xpc` processes (previews are rendered out of process). That
+didn't hold up — killing the app left every one of those XPC processes alive
+(they're shared and managed by launchd), and across 40 open/close cycles the number
+of XPC processes **never changed**. The leak was entirely in-process.
+
+---
+
+## Current status
+
+Recorded honestly — don't read this as "everything is verified."
+
+### Verified
+
+- Third-party Quick Look extensions render correctly in the custom host (full
+  Markdown layout: headings, bold, inline code, rules, lists, syntax-highlighted
+  code blocks, blockquotes, tables)
+- Multiple windows coexist, each independent, with cascaded offsets
+- `LSUIElement` works: no Dock icon; menu bar item works
+- The global hotkey works when pressed for real; hotkey recording in Preferences
+  works
+- After Automation permission is granted, the Finder selection is read correctly
+- The preview auto-refreshes after the file is modified externally
+- The flicker bug is fixed (see the 36/35 → 0/0 numbers above)
+- Memory and CPU numbers as above
+- A runnable `.app` builds with a single command
+- Text selection is unlocked for plain-text and Markdown previews: runtime logs
+  confirm the injection runs, and a select-all captures the full text
+
+### Not yet verified
+
+- **Selecting text by dragging with a real mouse** (verified only at the code
+  level via select-all; a real drag hasn't been systematically tested)
+- `⌘W` to close a window
+- The **click behavior** of the two title-bar buttons (they render correctly, but
+  the state changes after clicking haven't been systematically tested)
+- Dragging and resizing windows
+- `collectionBehavior` following across Spaces
+- The multi-display fix (after switching to "the screen the mouse is on," it hasn't
+  been verified on two separate screens)
+- Follow mode has only a limited number of passing runs; no stress testing
+
+## Known limitations
+
+- **Text in PDFs and similar previews can't be selected.** They're rendered out of
+  process via `NSRemoteView`; whether selection works is up to the system preview
+  extension, and this app can't reach it.
+- **Locally built (ad-hoc signed) apps make TCC ask for permission again.** The
+  signature changes on every rebuild, so *Automation → Finder* may need to be
+  granted again. The Developer ID–signed release builds don't have this problem.
+- **No mouse-click + key hotkeys.** `RegisterEventHotKey` only accepts "modifiers +
+  keyboard key." Mouse combinations would require a `CGEventTap` / global `NSEvent`
+  monitor, which needs Accessibility permission.
+- **A bare Space can't be the hotkey.** An unmodified Space would fire every time
+  you typed a space in any app; the Preferences recorder rejects it outright.
+- Preview refresh relies on `refreshPreviewItem()`; some extensions may not respond
+  to it.
+- There's no handling for "what should the window do after its file is deleted or
+  moved."
+
+## Debugging
+
+Logs always go to `~/Library/Logs/QuickLookPin.log` (stderr is redirected there,
+so logs are captured whether the app is launched by double-click, `open`, or from
+the command line).
+
+> Note: for ad-hoc signed apps, `log show` doesn't capture `NSLog` output — don't
+> use it for troubleshooting.
+
+```bash
+BIN=QuickLookPin/build/QuickLookPin.app/Contents/MacOS/QuickLookPin
+
+# Bypass Finder and the Automation permission; open a locked window directly
+"$BIN" --pin ~/some/file.md
+
+# Follow-mode self-test: uses the app's own Apple Event permission to change the
+# Finder selection and checks the result automatically.
+# Aborts immediately if the screen is locked (Finder can't be activated, so the
+# test would be meaningless).
+"$BIN" --follow-test <folder> <file1> <file2> <file3>
+
+# Memory self-test: open and close windows for N rounds, recording phys_footprint.
+# Criterion: "after closing all" should flatten out across rounds; steady linear
+# growth means a leak.
+"$BIN" --mem-test 10 <file1> <file2> <file3> <file4>
+
+# Polling-cost benchmark: open a follow window and leave it idle, to cleanly
+# measure the CPU cost of polling itself
+"$BIN" --poll-bench ~/some/file.md 55
+```
+
+## Project layout
+
+```
+quicklook-pin/
+  spike.swift        Proof of concept: single window, checks whether third-party extensions load in a custom host
+  spike2.swift       Proof of concept: multi-window independence + .normal vs .compact
+  test.md, test2.md  Test material
+  run.command        One-click script to run the spikes
+  QuickLookPin/
+    build.sh                             Builds the .app in one command
+    release.sh                           Packages a release: universal binary, signing, notarization
+    Resources/
+      Info.plist                         LSUIElement / NSAppleEventsUsageDescription / icon
+      QuickLookPin.entitlements          Hardened Runtime entitlement for Apple Events
+      AppIcon.icns                       App icon
+      make-icon.swift                    Generates AppIcon.icns
+    Sources/
+      main.swift                         Entry point + stderr redirected to the log file
+      AppDelegate.swift                  Menu bar, main menu, hotkey wiring, window and follow-window lifecycle
+      Settings.swift                     HotKeySpec + UserDefaults preferences
+      HotKeyManager.swift                Wrapper around Carbon RegisterEventHotKey
+      SystemHotKeyConflict.swift         Reads symbolichotkeys to detect "registered but taken"
+      FinderSelection.swift              Reads the Finder selection via AppleScript
+      FinderSelectionWatcher.swift       Polls the selection to drive follow mode
+      FileWatcher.swift                  DispatchSource file-change watcher (with content-signature check)
+      PinnedPreviewWindowController.swift Preview window (follow/lock + on-top/normal)
+      SelectionEnabler.swift             Unlocks text selection in previews
+      PreferencesWindowController.swift  Preferences + hotkey recorder
+      MemoryReport.swift                 Reads the process's own phys_footprint
+```
+
+## License
+
+[MIT](LICENSE)

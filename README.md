@@ -1,10 +1,8 @@
 # QuickLookPin
 
-把 macOS 的 Quick Look 预览「钉」成一个个独立的置顶窗口，长时间阅读，同时不影响继续用 Finder。
+[English](README.en.md) | **中文**
 
-> A macOS menu-bar utility that turns Quick Look previews into independent,
-> always-on-top windows — so a preview can stay open while you keep browsing Finder.
-> English summary at the bottom.
+把 macOS 的 Quick Look 预览「钉」成一个个独立的置顶窗口，长时间阅读，同时不影响继续用 Finder。
 
 ---
 
@@ -37,6 +35,7 @@ Markdown、源码高亮、各种格式插件，系统能预览什么，这里就
 - **跟随模式**：新开的窗口跟随 Finder 选中项，在 Finder 里按上下键就切换内容
 - **锁定**：点图钉锁定在当前文件，之后 Finder 再怎么切都不受影响
 - **置顶可切换**，窗口可拖拽缩放，`⌘W` 关闭
+- **预览里的文字可选取、可复制**（`⌘C` / `⌘A`），能做到哪一步见「[让文字可选取](#让文字可选取)」
 - **跟随所有 Space**（`collectionBehavior`）
 - **多窗口层叠偏移**，不会完全重合
 - **文件被外部修改时自动刷新**预览
@@ -89,7 +88,7 @@ cd QuickLookPin
 ./build.sh run          # 构建并启动
 ./build.sh universal    # 通用二进制 arm64 + x86_64（发布用）
 
-./release.sh v0.1.0     # 构建通用二进制并打包成 zip，打印 SHA256
+./release.sh v0.1.2     # 构建通用二进制并打包成 zip，打印 SHA256
 ```
 
 产物：`QuickLookPin/build/QuickLookPin.app`
@@ -99,7 +98,7 @@ cd QuickLookPin
 发布版走 `release.sh`，额外做 **Developer ID 签名 + Hardened Runtime + Apple 公证 + staple**：
 
 ```bash
-SIGN=1 NOTARY=AC_PASSWORD ./release.sh v0.1.0
+SIGN=1 NOTARY=AC_PASSWORD ./release.sh v0.1.2
 ```
 
 > **三者是递进的，别混为一谈**：
@@ -111,6 +110,17 @@ SIGN=1 NOTARY=AC_PASSWORD ./release.sh v0.1.0
 > **默认阻断 Apple Event**。本 App 靠 Apple Event 读 Finder 选中项，所以必须带上
 > `Resources/QuickLookPin.entitlements` 里的 `com.apple.security.automation.apple-events`。
 > 少了它，签名和公证都会通过，但一运行就读不到 Finder 选中项。
+
+### App 图标
+
+图标由脚本生成，不是手画的：macOS 风格圆角底板 + 一张预览卡片 + 钉在上面的 📌。
+
+```bash
+cd QuickLookPin
+swift Resources/make-icon.swift   # 重新生成 Resources/AppIcon.icns
+```
+
+`AppIcon.icns` 已提交进仓库，只有改设计时才需要重跑。
 
 ## 需要授予的权限
 
@@ -139,6 +149,8 @@ SIGN=1 NOTARY=AC_PASSWORD ./release.sh v0.1.0
 |---|---|
 | 📌 图钉 | **跟随 / 锁定**（内容层面）。跟随中标题显示 `◎ 跟随 ·`，锁定后显示 `📌` |
 | ⬆️ 方块箭头 | **置顶 / 普通**（窗口层级） |
+
+复制文字：在预览里拖动选中（或 `⌘A`），然后 `⌘C`。
 
 > ⚠️ **选快捷键时请避开空格键**，原因见下面「Finder 会吞掉空格键」。
 
@@ -207,6 +219,35 @@ Finder 没有提供「选中项变化」的公开通知，AppleScript 只能主�
 > 副作用：**点一下预览窗口，跟随就会暂停** —— 前台变成了 QuickLookPin 自己，
 > 轮询随即空转，直到焦点交回 Finder。想滚动阅读时，正确做法是**先点图钉锁定**。
 
+### 让文字可选取
+
+系统 Quick Look 默认禁止选取，三种渲染方式各禁各的（都是运行时遍历视图层级实测出来的）：
+
+| 内容 | 渲染视图 | 选不中的原因 | 处理 |
+|---|---|---|---|
+| 纯文本 | `QLTextView`（NSTextView 子类） | `isSelectable = false` | 改成 `true` |
+| Markdown / HTML 等 | `QLWeb2View`（WKWebView 子类） | 页面被打上 `-webkit-user-select: none` | 见下 |
+| PDF 等 | `NSRemoteView` | 在另一个进程里渲染 | **够不着** |
+
+Markdown 这条有个坑：那条 `user-select: none` 来自 WebKit 的 **user 级样式表**，
+user 级的 `!important` 压得过页面级的 `!important`，所以往页面里插
+`*{-webkit-user-select:text !important}` **没有用**（实测计算值仍是 `none`）。
+`WKPreferences.isTextInteractionEnabled` 也帮不上忙，它本来就是 `true`。
+
+可行的是 `-webkit-user-modify: read-write`：内容被当作可编辑区域，可编辑区域允许选取。
+副作用是文字真的能被改，所以同时把 `beforeinput` / `paste` / `drop` / `dragstart`
+全部挡掉，只留下选取和复制；光标也设成透明。见 `Sources/SelectionEnabler.swift`。
+
+预览是异步加载的，视图树要过一会儿才长出来，所以在几个时间点（0.2s → 3.5s）
+反复施加，切换文件、文件刷新时也会重来一遍。注入本身是幂等的。
+
+复制还依赖另外两处基础设施：
+
+- **`LSUIElement` 的 App 没有主菜单，而 `⌘C` / `⌘A` 靠主菜单派发。** 没有它，
+  选中了文字按快捷键也没人响应。这里装了一份不显示在屏幕上的主菜单。
+- **预览窗口通常以「不激活」方式弹出**（不抢 Finder 焦点），这时第一下点击
+  会被「激活 App」吃掉，拖选不生效。改成 `mouseDown` 时先激活窗口再传递事件。
+
 ---
 
 ## 性能
@@ -269,9 +310,11 @@ Finder 没有提供「选中项变化」的公开通知，AppleScript 只能主�
 - 闪烁 bug 已修（有上面那组 36/35 → 0/0 的数据）
 - 内存与 CPU 数据见上
 - 一条命令构建出可运行的 `.app`
+- 纯文本和 Markdown 预览的选取已解锁：运行时日志确认注入生效，全选能取到全文
 
 ### 未验证
 
+- **真实鼠标拖动选取文字**（只在代码层面用全选验证过，没有系统性地实测拖选）
 - `⌘W` 关闭窗口
 - 标题栏两个按钮的**点击行为**（按钮能正常渲染，但点击后的状态切换没有系统性测过）
 - 窗口拖拽、缩放
@@ -281,8 +324,10 @@ Finder 没有提供「选中项变化」的公开通知，AppleScript 只能主�
 
 ## 已知限制
 
-- **ad-hoc 签名会让 TCC 重新弹授权**。每次重建签名都会变，
-  「自动化 → Finder」可能要重新授权一次。根治需要正式开发者证书。
+- **PDF 这类预览里的文字选不了**。它们经 `NSRemoteView` 跨进程渲染，能不能选取由
+  系统预览扩展决定，本程序够不着。
+- **本地构建（ad-hoc 签名）会让 TCC 重新弹授权**。每次重建签名都会变，
+  「自动化 → Finder」可能要重新授权一次。Developer ID 签名的发布版没有这个问题。
 - **不支持「鼠标点击 + 按键」的组合快捷键**。`RegisterEventHotKey` 只接受
   「修饰键 + 键盘按键」。要支持鼠标组合只能上 `CGEventTap` / `NSEvent` 全局监听，
   那需要辅助功能权限。
@@ -326,10 +371,15 @@ quicklook-pin/
   run.command        跑 spike 的一键脚本
   QuickLookPin/
     build.sh                             一条命令构建 .app
-    Resources/Info.plist                 LSUIElement / NSAppleEventsUsageDescription
+    release.sh                           打发布包：通用二进制、签名、公证
+    Resources/
+      Info.plist                         LSUIElement / NSAppleEventsUsageDescription / 图标
+      QuickLookPin.entitlements          Hardened Runtime 下放行 Apple Event
+      AppIcon.icns                       App 图标
+      make-icon.swift                    生成 AppIcon.icns
     Sources/
       main.swift                         入口 + stderr 重定向到日志文件
-      AppDelegate.swift                  菜单栏、热键接线、窗口与跟随窗生命周期
+      AppDelegate.swift                  菜单栏、主菜单、热键接线、窗口与跟随窗生命周期
       Settings.swift                     HotKeySpec + UserDefaults 偏好
       HotKeyManager.swift                Carbon RegisterEventHotKey 封装
       SystemHotKeyConflict.swift         查 symbolichotkeys，识别「注册成功但被占用」
@@ -337,47 +387,12 @@ quicklook-pin/
       FinderSelectionWatcher.swift       轮询选中项，驱动跟随模式
       FileWatcher.swift                  DispatchSource 监视文件变更（带内容签名校验）
       PinnedPreviewWindowController.swift 预览窗口（跟随/锁定 + 置顶/普通）
+      SelectionEnabler.swift             解锁预览里的文字选取
       PreferencesWindowController.swift  偏好设置 + 快捷键录制
       MemoryReport.swift                 读取自身 phys_footprint
 ```
 
 ---
-
-## English
-
-**QuickLookPin** turns macOS Quick Look previews into independent, always-on-top
-windows. The system's spacebar preview is a singleton panel bound to the current
-Finder selection — switch windows or change selection and it disappears or swaps
-its content. QuickLookPin lets you pin a preview so it stays put.
-
-It embeds `QLPreviewView` (QuickLookUI) in its own `NSWindow`. Because that's the
-same Quick Look pipeline the system panel uses, **any third-party Quick Look
-preview extension you already have installed keeps working** — there's no format
-whitelist.
-
-**Highlights**
-
-- Menu-bar only (`LSUIElement`), no Dock icon
-- Configurable global hotkey via Carbon `RegisterEventHotKey` — **no Accessibility
-  permission required**
-- *Follow mode*: the window tracks the Finder selection (arrow keys switch content);
-  click the pin to lock it to a file
-- Floating level toggle, all-Spaces, cascade offsets, `⌘W` to close
-- Live refresh when the file changes on disk
-- Does **not** hijack the spacebar; the system preview keeps working
-
-**Requirements**: macOS 13+, Xcode Command Line Tools. No SwiftPM, no Xcode
-project, no third-party dependencies.
-
-**Build**: `cd QuickLookPin && ./build.sh` → `QuickLookPin/build/QuickLookPin.app`
-
-**Permissions**: only *Automation → Finder* (to read the current selection).
-
-See the 工程笔记 / 性能 sections above for measured numbers and a write-up of the
-non-obvious macOS pitfalls hit along the way (hotkey registration silently
-succeeding on occupied combos, Finder swallowing the spacebar, a `DispatchSource`
-`.attrib` feedback loop causing preview flicker, and a `QLPreviewView` leak from a
-missing `close()`).
 
 ## License
 
